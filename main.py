@@ -1,57 +1,55 @@
 import requests
 from bs4 import BeautifulSoup
 
-# ⛔ UWAGA: Dane wrażliwe wpisane na stałe – NIEBEZPIECZNE na publicznym repo!
-LOGIN_EMAIL = "twoj@email.com"
+# 🔐 Dane logowania i Telegram (hardcoded)
+LOGIN_EMAIL = "marcin.chwalik@gmail.com"
 LOGIN_PASSWORD = "Sdkfz251"
-TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ123"
-TELEGRAM_CHAT_ID = "123456789"
+TELEGRAM_BOT_TOKEN = "7958150824:AAH4-Edu3YIQV9d-rZRHdq7rp_JI222OmGY"
+TELEGRAM_CHAT_ID = "7647211011"
 
-def send_log(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-    }
+def send_log(msg):
     try:
-        requests.post(url, data=payload)
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": msg
+            }
+        )
     except Exception as e:
-        print(f"Nie udało się wysłać loga na Telegram: {e}")
+        print(f"❌ Błąd wysyłania do Telegrama: {e}")
 
 def login():
-    try:
-        session = requests.Session()
-        login_page = session.get("https://strefainwestorow.pl/user/login")
-        soup = BeautifulSoup(login_page.text, "html.parser")
+    send_log("🔐 Rozpoczynam logowanie...")
 
-        # Szukamy dynamicznych ukrytych pól (Drupal)
-        form = soup.find("form", {"id": "user-login-form"})
-        if not form:
-            send_log("❌ Nie znaleziono formularza logowania.")
-            return
+    session = requests.Session()
+    res_get = session.get("https://strefainwestorow.pl/user/login")
+    if res_get.status_code != 200:
+        return send_log(f"❌ Błąd pobierania formularza: HTTP {res_get.status_code}")
 
-        form_build_id = form.find("input", {"name": "form_build_id"})["value"]
-        form_id = form.find("input", {"name": "form_id"})["value"]
-        honeypot_time = form.find("input", {"name": "honeypot_time"})["value"]
+    soup = BeautifulSoup(res_get.text, "html.parser")
+    form = soup.find("form", {"id": "user-login"})
+    if not form:
+        return send_log("❌ Nie znaleziono formularza logowania.")
 
-        payload = {
-            "name": LOGIN_EMAIL,
-            "pass": LOGIN_PASSWORD,
-            "form_id": form_id,
-            "form_build_id": form_build_id,
-            "honeypot_time": honeypot_time,
-            "op": "Zaloguj"
-        }
+    data = {"name": LOGIN_EMAIL, "pass": LOGIN_PASSWORD}
 
-        response = session.post("https://strefainwestorow.pl/user/login", data=payload)
+    for hidden in form.find_all("input", {"type": "hidden"}):
+        name = hidden.get("name")
+        val = hidden.get("value", "")
+        if name:
+            data[name] = val
 
-        if "Wyloguj" in response.text or "/user/logout" in response.text:
-            send_log("✅ Zalogowano pomyślnie na strefainwestorow.pl")
-        else:
-            send_log("❌ Logowanie nieudane – brak frazy 'Wyloguj' w odpowiedzi.")
-    except Exception as e:
-        send_log(f"❌ Błąd w funkcji login(): {str(e)}")
+    post_url = "https://strefainwestorow.pl" + form.get("action", "/user/login")
+    res_post = session.post(post_url, data=data)
+    if res_post.status_code != 200:
+        return send_log(f"❌ Błąd logowania (kod HTTP {res_post.status_code})")
+
+    if "Wyloguj" in res_post.text or "/user/logout" in res_post.text:
+        send_log("✅ Logowanie zakończone sukcesem!")
+    else:
+        send_log("❌ Logowanie nie powiodło się – fraza 'Wyloguj' nie została znaleziona.")
 
 if __name__ == "__main__":
-    send_log("🟢 Skrypt uruchomiony!")
+    send_log("🟢 Skrypt wystartował – radę logowania.")
     login()
