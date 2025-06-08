@@ -1,84 +1,93 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-# 🔐 Dane logowania i Telegram (hardcoded)
-LOGIN_EMAIL = "marcin.chwalik@gmail.com"
-LOGIN_PASSWORD = "Sdkfz251"
-TELEGRAM_BOT_TOKEN = "7958150824:AAH4-Edu3YIQV9d-rZRHdq7rp_JI222OmGY"
-TELEGRAM_CHAT_ID = "7647211011"
+# Dane logowania i Telegram (hardkodowane – nie zmieniamy!)
+EMAIL = "twoj_email@domena.pl"
+PASSWORD = "twoje_haslo"
+TELEGRAM_BOT_TOKEN = "bot123456:ABC..."
+TELEGRAM_CHAT_ID = "123456789"
 
+LOGIN_URL = "https://strefainwestorow.pl/user/login"
 PORTFEL_URLS = [
     "https://strefainwestorow.pl/portfel_strefy_inwestorow",
     "https://strefainwestorow.pl/portfel_petard"
 ]
 
-def send_log(msg):
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": msg
-            }
-        )
-    except Exception as e:
-        print(f"❌ Błąd wysyłania do Telegrama: {e}")
+session = requests.Session()
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    requests.post(url, data={
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "MarkdownV2"
+    })
+
+def escape_markdown(text):
+    escape_chars = r"_*[]()~`>#+-=|{}.!"
+    return ''.join(f"\\{c}" if c in escape_chars else c for c in text)
 
 def login():
-    send_log("🔐 Rozpoczynam logowanie...")
-
-    session = requests.Session()
-    res_get = session.get("https://strefainwestorow.pl/user/login")
-    send_log(f"📡 Status logowania: {res_get.status_code}")
-    if res_get.status_code != 200:
-        send_log(f"❌ Błąd pobierania formularza: HTTP {res_get.status_code}")
-        return None
-
-    soup = BeautifulSoup(res_get.text, "html.parser")
+    send_telegram_message("🔐 Rozpoczynam logowanie...")
+    response = session.get(LOGIN_URL)
+    soup = BeautifulSoup(response.text, "html.parser")
     form = soup.find("form", {"id": "user-login-form"})
     if not form:
-        send_log("❌ Nie znaleziono formularza logowania.")
-        return None
+        send_telegram_message("❌ Nie znaleziono formularza logowania.")
+        return False
+    form_build_id = form.find("input", {"name": "form_build_id"})["value"]
+    form_id = form.find("input", {"name": "form_id"})["value"]
+    data = {
+        "name": EMAIL,
+        "pass": PASSWORD,
+        "form_build_id": form_build_id,
+        "form_id": form_id,
+        "op": "Zaloguj"
+    }
+    post_response = session.post(LOGIN_URL, data=data)
+    if post_response.url == LOGIN_URL:
+        send_telegram_message("❌ Logowanie nieudane – sprawdź dane.")
+        return False
+    send_telegram_message("✅ Logowanie zakończone sukcesem!")
+    return True
 
-    data = {"name": LOGIN_EMAIL, "pass": LOGIN_PASSWORD}
+def parse_table(url):
+    response = session.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    table = soup.find("table")
+    if not table:
+        send_telegram_message(f"⚠️ Brak tabeli na stronie {url}")
+        return
 
-    for hidden in form.find_all("input", {"type": "hidden"}):
-        name = hidden.get("name")
-        val = hidden.get("value", "")
-        if name:
-            data[name] = val
+    rows = table.find_all("tr")
+    parsed_rows = []
+    for row in rows[1:]:
+        cols = [col.text.strip() for col in row.find_all("td")]
+        if len(cols) >= 7:
+            parsed_rows.append(cols[:7])
 
-    post_url = "https://strefainwestorow.pl" + form.get("action", "/user/login")
-    res_post = session.post(post_url, data=data)
-    if res_post.status_code != 200:
-        send_log(f"❌ Błąd logowania (kod HTTP {res_post.status_code})")
-        return None
+    if not parsed_rows:
+        send_telegram_message(f"⚠️ Brak danych w tabeli z {url}")
+        return
 
-    if "Wyloguj" in res_post.text or "/user/logout" in res_post.text:
-        send_log("✅ Logowanie zakończone sukcesem!")
-        return session
-    else:
-        send_log("❌ Logowanie nie powiodło się – fraza 'Wyloguj' nie została znaleziona.")
-        return None
+    header = ["Spółka", "Data zakupu", "Cena kupna (średnia)", "Liczba akcji", "Cena aktualna", "Aktualna wartość pozycji", "Zysk/strata"]
+    table_md = "| " + " | ".join(header) + " |\n"
+    table_md += "|:" + "|:".join(["-" * len(h) for h in header]) + "|\n"
+    for row in parsed_rows:
+        row = [escape_markdown(cell.replace(" ", "\u00A0")) for cell in row]  # nbsp zamiast zwykłych spacji
+        table_md += "| " + " | ".join(row) + " |\n"
 
-def test_portfel_access(session):
-    for url in PORTFEL_URLS:
-        res = session.get(url)
-        if res.status_code != 200:
-            send_log(f"❌ Błąd pobierania {url} – HTTP {res.status_code}")
-            continue
+    send_telegram_message(f"📊 Dane z portfela:
 
-        soup = BeautifulSoup(res.text, "html.parser")
-        table = soup.find("table")
-        if table:
-            sample_html = str(table)[:1000]  # max 1000 znaków
-            send_log(f"📄 Fragment HTML z {url} (ucięty):\n{sample_html}")
-        else:
-            send_log(f"⚠️ Nie znaleziono tabeli na stronie: {url}")
+{table_md}")
+
+def main():
+    send_telegram_message("🟢 Skrypt wystartował – sprawdzanie portfeli.")
+    if login():
+        for url in PORTFEL_URLS:
+            parse_table(url)
 
 if __name__ == "__main__":
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli.")
-    session = login()
-    if session:
-        test_portfel_access(session)
+    main()
