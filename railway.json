@@ -1,26 +1,22 @@
 {
+  "build": {
+    "env": {
+      "PYTHONUNBUFFERED": "1"
+    }
+  },
+  "deploy": {
+    "startCommand": "python main.py"
+  },
   "plugins": {
     "cron": {
-      "jobs": [
+      "tasks": [
         {
-          "name": "Wysyłka tabelki co piątek 17:00",
-          "command": "python main.py weekly",
-          "schedule": "0 17 * * 5" 
+          "schedule": "0 17 * * 5",
+          "command": "python main.py --weekly"
         },
         {
-          "name": "Sprawdzenie nowych zakupów - rano",
-          "command": "python main.py daily",
-          "schedule": "0 10 * * *"
-        },
-        {
-          "name": "Sprawdzenie nowych zakupów - popołudnie",
-          "command": "python main.py daily",
-          "schedule": "0 14 * * *"
-        },
-        {
-          "name": "Sprawdzenie nowych zakupów - wieczór",
-          "command": "python main.py daily",
-          "schedule": "0 17 * * *"
+          "schedule": "0 9,13,17 * * *",
+          "command": "python main.py --daily"
         }
       ]
     }
