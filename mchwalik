@@ -1,0 +1,28 @@
+{
+  "plugins": {
+    "cron": {
+      "jobs": [
+        {
+          "name": "Wysyłka tabelki co piątek 17:00",
+          "command": "python main.py weekly",
+          "schedule": "0 17 * * 5" 
+        },
+        {
+          "name": "Sprawdzenie nowych zakupów - rano",
+          "command": "python main.py daily",
+          "schedule": "0 10 * * *"
+        },
+        {
+          "name": "Sprawdzenie nowych zakupów - popołudnie",
+          "command": "python main.py daily",
+          "schedule": "0 14 * * *"
+        },
+        {
+          "name": "Sprawdzenie nowych zakupów - wieczór",
+          "command": "python main.py daily",
+          "schedule": "0 17 * * *"
+        }
+      ]
+    }
+  }
+}
