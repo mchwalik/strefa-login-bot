@@ -1,77 +1,69 @@
+import os
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 
-# ===== KONFIGURACJA =====
-LOGIN_EMAIL = "mchwalik@op.pl"
-LOGIN_PASSWORD = "Sdkfz251"
-TELEGRAM_BOT_TOKEN = "6649065956:AAG7SHayTP-oAYJKNYEvJsc62v_07dLQuXk"
-TELEGRAM_CHAT_ID = "5332477911"
-LOG_FILE = "log.txt"
 LOGIN_URL = "https://strefainwestorow.pl/user/login"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
-# ===== FUNKCJE =====
-def log(text):
-    timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-    with open(LOG_FILE, "a") as f:
-        f.write(f"{timestamp} {text}\n")
-
-def notify_telegram(message):
+def send_telegram_message(text):
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
         response = requests.post(url, data=payload)
-        log(f"🔔 Telegram response: {response.status_code} {response.text}")
+        if response.status_code != 200:
+            print(f"❌ Błąd Telegrama [{response.status_code}]: {response.text}")
     except Exception as e:
-        log(f"❌ Błąd wysyłania Telegram: {e}")
+        print(f"❌ Wyjątek przy wysyłaniu do Telegrama: {e}")
 
 def login():
-    notify_telegram("🟢 Skrypt uruchomiony!")
-    log("🟢 Skrypt uruchomiony!")
-    
-    session = requests.Session()
-    
+    send_telegram_message("🟢 Skrypt uruchomiony!")
+    email = os.getenv("LOGIN_EMAIL")
+    password = os.getenv("LOGIN_PASSWORD")
+    if not email or not password:
+        send_telegram_message("❌ Brakuje danych logowania (LOGIN_EMAIL, LOGIN_PASSWORD)")
+        return
     try:
-        response = session.get(LOGIN_URL)
-        log(f"🌐 GET {LOGIN_URL} → {response.status_code}")
+        session = requests.Session()
+        response = session.get(LOGIN_URL, headers=HEADERS)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        form = soup.find("form", {"id": "user-login"})
+        form = soup.find("form", {"id": "user-login-form"})
         if not form:
-            msg = "❌ Nie znaleziono formularza logowania."
-            notify_telegram(msg)
-            log(msg)
+            send_telegram_message("❌ Nie znaleziono formularza logowania.")
             return
 
         form_build_id = form.find("input", {"name": "form_build_id"})
-        if not form_build_id:
-            msg = "❌ Nie znaleziono form_build_id."
-            notify_telegram(msg)
-            log(msg)
+        form_id = form.find("input", {"name": "form_id"})
+        honeypot = form.find("input", {"name": "honeypot_time"})
+
+        if not all([form_build_id, form_id, honeypot]):
+            send_telegram_message("❌ Nie znaleziono wymaganych ukrytych pól.")
             return
 
         payload = {
-            "name": LOGIN_EMAIL,
-            "pass": LOGIN_PASSWORD,
-            "form_id": "user_login_form",
-            "form_build_id": form_build_id["value"]
+            "name": email,
+            "pass": password,
+            "form_build_id": form_build_id["value"],
+            "form_id": form_id["value"],
+            "honeypot_time": honeypot["value"]
         }
 
-        login_response = session.post(LOGIN_URL, data=payload)
-        log(f"📡 POST {LOGIN_URL} → {login_response.status_code}")
+        post_response = session.post(LOGIN_URL, data=payload, headers=HEADERS)
+        send_telegram_message(f"📡 Status logowania: {post_response.status_code}")
 
-        if "Wyloguj" in login_response.text or "/user/logout" in login_response.text:
-            msg = "✅ Zalogowano pomyślnie!"
+        if "/user/logout" in post_response.text:
+            send_telegram_message("✅ Logowanie powiodło się!")
         else:
-            msg = "❌ Logowanie nie powiodło się."
-
-        notify_telegram(msg)
-        log(msg)
+            send_telegram_message("❌ Logowanie nie powiodło się.")
 
     except Exception as e:
-        notify_telegram(f"❌ Wyjątek: {str(e)}")
-        log(f"❌ Wyjątek: {str(e)}")
+        send_telegram_message(f"❌ Wyjątek podczas logowania: {str(e)}")
 
-# ===== START =====
 if __name__ == "__main__":
     login()
