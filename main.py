@@ -1,53 +1,73 @@
-import os
 import requests
 from bs4 import BeautifulSoup
+import time
+import os
 
-# Dane z Railway (zmienne środowiskowe)
-EMAIL = os.getenv("LOGIN_EMAIL")
-PASSWORD = os.getenv("LOGIN_PASSWORD")
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# === KONFIGURACJA ===
+LOGIN_URL = "https://strefainwestorow.pl/user/login"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-def send_log(msg):
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": msg}
-    )
+USERNAME = os.getenv("LOGIN_EMAIL")  # np. "marcin.chwalik@gmail.com"
+PASSWORD = os.getenv("LOGIN_PASSWORD")  # np. "Sdkfz251"
 
-def main():
-    send_log("🔹 Rozpoczynam logowanie...")
+# === FUNKCJE ===
 
-    login_url = "https://strefainwestorow.pl/user/login"
+def send_telegram(message: str):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("❌ Nie ustawiono TELEGRAM_BOT_TOKEN lub TELEGRAM_CHAT_ID")
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message
+    }
+    try:
+        requests.post(url, data=payload)
+    except Exception as e:
+        print(f"❌ Nie można wysłać do Telegrama: {e}")
+
+def login():
+    send_telegram("🔐 Rozpoczynam logowanie do strefainwestorow.pl...")
+
     session = requests.Session()
-    resp = session.get(login_url)
-    if resp.status_code != 200:
-        return send_log(f"❌ Błąd pobierania login page: {resp.status_code}")
+    try:
+        response = session.get(LOGIN_URL)
+    except Exception as e:
+        send_telegram(f"❌ Błąd pobierania strony logowania: {e}")
+        return
 
-    send_log("✅ Strona logowania pobrana.")
+    soup = BeautifulSoup(response.text, "html.parser")
+    form = soup.find("form", {"id": "user-login"})
+    if not form:
+        send_telegram("❌ Nie znaleziono formularza logowania!")
+        return
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    token = soup.find("input", {"name": "form_build_id"})
-    form_build_id = token["value"] if token else None
-
-    send_log(f"🎯 CSRF token: {form_build_id}" if form_build_id else "⚠️ Brak CSRF tokena")
+    form_build_id = form.find("input", {"name": "form_build_id"})["value"]
+    form_id = form.find("input", {"name": "form_id"})["value"]
 
     payload = {
-        "name": EMAIL,
+        "name": USERNAME,
         "pass": PASSWORD,
-        "form_id": "user_login_form",
-        "op": "Zaloguj",
+        "form_build_id": form_build_id,
+        "form_id": form_id,
+        "op": "Zaloguj"
     }
-    if form_build_id:
-        payload["form_build_id"] = form_build_id
 
-    resp2 = session.post(login_url, data=payload)
-    if resp2.status_code != 200:
-        return send_log(f"❌ Błąd POST login: {resp2.status_code}")
+    try:
+        post_response = session.post(LOGIN_URL, data=payload)
+    except Exception as e:
+        send_telegram(f"❌ Błąd podczas wysyłania formularza: {e}")
+        return
 
-    if "Zaloguj się" in resp2.text:
-        return send_log("❌ Logowanie nieudane – strona ponownie oferuje logowanie.")
+    if "Wyloguj" in post_response.text or "/user/logout" in post_response.text:
+        send_telegram("✅ Zalogowano pomyślnie do strefainwestorow.pl!")
+    else:
+        send_telegram("❌ Logowanie nie powiodło się. Sprawdź dane logowania.")
 
-    send_log("✅ Zalogowano pomyślnie!")
+# === START SKRYPTU ===
 
 if __name__ == "__main__":
-    main()
+    print("🟢 Skrypt uruchomiony!")
+    send_telegram("🚀 Skrypt uruchomiony – zaczynam procedurę logowania.")
+    login()
