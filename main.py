@@ -1,9 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-import time
+import sys
 
-# 🔐 Dane logowania i Telegram (NIE ZMIENIAĆ!)
+# 🔐 Dane logowania i Telegram (hardcoded – NIE ZMIENIAĆ!)
 LOGIN_EMAIL = "marcin.chwalik@gmail.com"
 LOGIN_PASSWORD = "Sdkfz251"
 TELEGRAM_BOT_TOKEN = "7958150824:AAH4-Edu3YIQV9d-rZRHdq7rp_JI222OmGY"
@@ -18,13 +18,18 @@ def send_log(msg):
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": msg,
+                "parse_mode": "Markdown"
+            }
         )
     except Exception as e:
         print(f"❌ Błąd wysyłania do Telegrama: {e}")
 
 def login():
     send_log("🔐 Rozpoczynam logowanie...")
+
     session = requests.Session()
     res_get = session.get("https://strefainwestorow.pl/user/login")
     send_log(f"📡 Status logowania: {res_get.status_code}")
@@ -38,7 +43,11 @@ def login():
         send_log("❌ Nie znaleziono formularza logowania.")
         return None
 
-    data = {"name": LOGIN_EMAIL, "pass": LOGIN_PASSWORD}
+    data = {
+        "name": LOGIN_EMAIL,
+        "pass": LOGIN_PASSWORD
+    }
+
     for hidden in form.find_all("input", {"type": "hidden"}):
         name = hidden.get("name")
         val = hidden.get("value", "")
@@ -66,64 +75,71 @@ def parse_portfel_table(html, label):
 
     rows = table.find_all("tr")
     header = [col.get_text(strip=True) for col in rows[0].find_all("th")]
-    output = [f"*📊 {label}*", " | ".join(header), "-" * 60]
+    output = [f"*📊 {label}*"]
+    output.append(" | ".join(header))
+    output.append("-" * 60)
 
     for row in rows[1:]:
         cols = row.find_all("td")
-        if not cols or "Gotówka" in row.text or "Całkowita wartość" in row.text:
+        if not cols:
             continue
         data = [col.get_text(strip=True) for col in cols]
+
+        # Pomijaj wiersze z podsumowaniami, np. zawierające "Gotówka", "WIG", "wartość portfela"
+        if any(sub in data[0] for sub in ["Gotówka", "Całkowita", "WIG", "sWIG", "mWIG"]):
+            continue
+
         output.append(" | ".join(data))
 
     return "\n".join(output)
 
-def check_for_today_purchases(html, label):
-    soup = BeautifulSoup(html, "html.parser")
-    table = soup.find("table")
-    if not table:
-        return []
-
-    rows = table.find_all("tr")[1:]
+def check_today_purchases(session):
     today = datetime.now().strftime("%d.%m.%Y")
-    new_purchases = []
-
-    for row in rows:
-        cols = row.find_all("td")
-        if len(cols) >= 2:
-            date_text = cols[1].get_text(strip=True)
-            if date_text == today:
-                company = cols[0].get_text(strip=True)
-                price = cols[2].get_text(strip=True)
-                new_purchases.append(f"🛒 *Nowy zakup w {label}*\nSpółka: {company}\nData: {date_text}\nCena: {price}")
-
-    return new_purchases
-
-def main():
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli.")
-    session = login()
-    if not session:
-        return
-
-    now = datetime.now()
-    is_friday_17 = now.weekday() == 4 and now.hour == 17
-
     for label, url in PORTFEL_URLS.items():
         try:
             res = session.get(url)
             if res.status_code != 200:
-                send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
                 continue
-
-            if is_friday_17:
-                msg = parse_portfel_table(res.text, label)
-                send_log(msg)
-            else:
-                purchases = check_for_today_purchases(res.text, label)
-                for purchase in purchases:
-                    send_log(purchase)
-
+            soup = BeautifulSoup(res.text, "html.parser")
+            rows = soup.find_all("tr")[1:]
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) >= 6:
+                    data = cols[1].get_text(strip=True)
+                    if data == today:
+                        spol = cols[0].get_text(strip=True)
+                        cena = cols[2].get_text(strip=True)
+                        send_log(f"📢 *Nowy zakup!*\nSpółka: {spol}\nCena: {cena}\nŹródło: {label}")
         except Exception as e:
-            send_log(f"❌ Błąd przy analizie {url}:\n{e}")
+            send_log(f"❌ Błąd przy analizie {label}:\n{e}")
+
+def main():
+    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli.")
+    args = sys.argv[1:]
+    if args:
+        send_log(f"🧭 Wykryto tryb uruchomienia: `{args[0]}`")
+
+    session = login()
+    if not session:
+        return
+
+    if "--daily" in args:
+        check_today_purchases(session)
+
+    if "--weekly" in args:
+        for label, url in PORTFEL_URLS.items():
+            try:
+                res = session.get(url)
+                if res.status_code == 200:
+                    msg = parse_portfel_table(res.text, label)
+                    send_log(msg)
+                else:
+                    send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
+            except Exception as e:
+                send_log(f"❌ Błąd przy analizie {url}:\n{e}")
+
+    if not args:
+        send_log("✅ Harmonogramy aktywne: `--daily`, `--weekly`.")
 
 if __name__ == "__main__":
     main()
