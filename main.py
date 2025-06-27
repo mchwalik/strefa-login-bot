@@ -2,9 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import sys
-import schedule
 import time
-import threading
 
 # 🔐 Dane logowania i Telegram (NIE ZMIENIAĆ!)
 LOGIN_EMAIL = "marcin.chwalik@gmail.com"
@@ -91,7 +89,7 @@ def parse_portfel_table(html, label, suppress_summary=True):
             continue
         data = [col.get_text(strip=True) for col in cols]
 
-        # Pomijaj wiersze podsumowań (gdy są puste w pierwszych kolumnach lub zawierają np. "WIG")
+        # Pomijaj podsumowania
         if suppress_summary:
             joined = " ".join(data).lower()
             if not data[0] or any(key in joined for key in ["wig", "całkowita wartość", "gotówka", "stopa zwrotu"]):
