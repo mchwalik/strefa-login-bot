@@ -85,19 +85,20 @@ def parse_portfel_table(html, label, only_today=False):
         if not cols:
             continue
         data = [col.get_text(strip=True) for col in cols]
+
+        # Pomijaj podsumowania:
+        if (
+            not data[0].strip()  # pusta pierwsza kolumna
+            or "Całkowita wartość" in data[0]
+            or data[-1] in ["WIG", "WIG20", "sWIG80", "mWIG40"]
+        ):
+            continue
+
+        # Tryb dzienny
         if only_today:
             if len(data) >= 2 and data[1] == datetime.now().strftime("%d.%m.%Y"):
                 data_rows.append(data)
         else:
-            if (
-                "Gotówka" in data[0]
-                or "Całkowita wartość" in data[0]
-                or "WIG" in data[-1]
-                or "sWIG80" in data[-1]
-                or "mWIG40" in data[-1]
-                or "WIG20" in data[-1]
-            ):
-                continue
             data_rows.append(data)
 
     if not data_rows:
