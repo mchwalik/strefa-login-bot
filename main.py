@@ -1,7 +1,7 @@
+import sys
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-import sys
 
 # 🔐 Dane logowania i Telegram (hardcoded – NIE ZMIENIAĆ!)
 LOGIN_EMAIL = "marcin.chwalik@gmail.com"
@@ -84,62 +84,65 @@ def parse_portfel_table(html, label):
         if not cols:
             continue
         data = [col.get_text(strip=True) for col in cols]
-
-        # Pomijaj wiersze z podsumowaniami, np. zawierające "Gotówka", "WIG", "wartość portfela"
-        if any(sub in data[0] for sub in ["Gotówka", "Całkowita", "WIG", "sWIG", "mWIG"]):
+        # Pomijamy podsumowania
+        if any("Gotówka" in d or "wartość portfela" in d.lower() or "wig" in d.lower() for d in data):
             continue
-
         output.append(" | ".join(data))
 
     return "\n".join(output)
 
-def check_today_purchases(session):
-    today = datetime.now().strftime("%d.%m.%Y")
-    for label, url in PORTFEL_URLS.items():
-        try:
-            res = session.get(url)
-            if res.status_code != 200:
-                continue
-            soup = BeautifulSoup(res.text, "html.parser")
-            rows = soup.find_all("tr")[1:]
-            for row in rows:
-                cols = row.find_all("td")
-                if len(cols) >= 6:
-                    data = cols[1].get_text(strip=True)
-                    if data == today:
-                        spol = cols[0].get_text(strip=True)
-                        cena = cols[2].get_text(strip=True)
-                        send_log(f"📢 *Nowy zakup!*\nSpółka: {spol}\nCena: {cena}\nŹródło: {label}")
-        except Exception as e:
-            send_log(f"❌ Błąd przy analizie {label}:\n{e}")
-
 def main():
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli.")
-    args = sys.argv[1:]
-    if args:
-        send_log(f"🧭 Wykryto tryb uruchomienia: `{args[0]}`")
+    mode = None
+    if "--daily" in sys.argv:
+        mode = "daily"
+        send_log("📅 Harmonogram `--daily` aktywowany")
+    elif "--weekly" in sys.argv:
+        mode = "weekly"
+        send_log("📅 Harmonogram `--weekly` aktywowany")
+    else:
+        send_log("🟢 Skrypt wystartował – sprawdzanie portfeli ręczne")
 
     session = login()
     if not session:
         return
 
-    if "--daily" in args:
-        check_today_purchases(session)
+    today_str = datetime.now().strftime("%d.%m.%Y")
 
-    if "--weekly" in args:
-        for label, url in PORTFEL_URLS.items():
-            try:
-                res = session.get(url)
-                if res.status_code == 200:
-                    msg = parse_portfel_table(res.text, label)
+    for label, url in PORTFEL_URLS.items():
+        try:
+            res = session.get(url)
+            if res.status_code != 200:
+                send_log(f"❌ Błąd pobierania {url}")
+                continue
+
+            soup = BeautifulSoup(res.text, "html.parser")
+            table = soup.find("table")
+            if not table:
+                send_log(f"❌ Nie znaleziono tabeli na stronie {url}")
+                continue
+
+            rows = table.find_all("tr")[1:]
+            new_purchases = []
+
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) < 6:
+                    continue
+                if today_str in cols[5].text:
+                    spolka = cols[0].text.strip()
+                    cena = cols[2].text.strip()
+                    new_purchases.append(f"🆕 Nowy zakup ({label}): *{spolka}* po *{cena}*")
+
+            if mode == "daily" and new_purchases:
+                for msg in new_purchases:
                     send_log(msg)
-                else:
-                    send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
-            except Exception as e:
-                send_log(f"❌ Błąd przy analizie {url}:\n{e}")
 
-    if not args:
-        send_log("✅ Harmonogramy aktywne: `--daily`, `--weekly`.")
+            elif mode == "weekly":
+                summary = parse_portfel_table(res.text, label)
+                send_log(summary)
+
+        except Exception as e:
+            send_log(f"❌ Błąd w analizie {label}:\n{e}")
 
 if __name__ == "__main__":
     main()
