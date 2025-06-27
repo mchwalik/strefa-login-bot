@@ -67,82 +67,84 @@ def login():
         send_log("❌ Logowanie nie powiodło się – brak frazy 'Wyloguj'.")
         return None
 
-def parse_portfel_table(html, label):
+def parse_portfel_table(html, label, only_today=False):
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table")
     if not table:
-        return f"❌ Nie znaleziono tabeli w portfelu: {label}"
+        return None
 
     rows = table.find_all("tr")
-    header = [col.get_text(strip=True) for col in rows[0].find_all("th")]
-    output = [f"*📊 {label}*"]
-    output.append(" | ".join(header))
-    output.append("-" * 60)
+    if not rows:
+        return None
+
+    header = [col.get_text(strip=True) for col in rows[0].find_all(["th", "td"])]
+    data_rows = []
 
     for row in rows[1:]:
         cols = row.find_all("td")
         if not cols:
             continue
         data = [col.get_text(strip=True) for col in cols]
-        # Pomijamy podsumowania
-        if any("Gotówka" in d or "wartość portfela" in d.lower() or "wig" in d.lower() for d in data):
-            continue
-        output.append(" | ".join(data))
+        if only_today:
+            if len(data) >= 2 and data[1] == datetime.now().strftime("%d.%m.%Y"):
+                data_rows.append(data)
+        else:
+            if "Gotówka" in data[0] or "Całkowita wartość" in data[0] or "WIG" in data[0]:
+                continue
+            data_rows.append(data)
 
+    if not data_rows:
+        return None
+
+    output = [f"*📊 {label}*"]
+    output.append(" | ".join(header))
+    output.append("-" * 60)
+    for data in data_rows:
+        output.append(" | ".join(data))
     return "\n".join(output)
 
-def main():
-    mode = None
-    if "--daily" in sys.argv:
-        mode = "daily"
-        send_log("📅 Harmonogram `--daily` aktywowany")
-    elif "--weekly" in sys.argv:
-        mode = "weekly"
-        send_log("📅 Harmonogram `--weekly` aktywowany")
-    else:
-        send_log("🟢 Skrypt wystartował – sprawdzanie portfeli ręczne")
-
-    session = login()
-    if not session:
-        return
-
-    today_str = datetime.now().strftime("%d.%m.%Y")
-
+def run_daily(session):
+    send_log("📅 Harmonogram --daily aktywowany")
     for label, url in PORTFEL_URLS.items():
         try:
             res = session.get(url)
-            if res.status_code != 200:
-                send_log(f"❌ Błąd pobierania {url}")
-                continue
-
-            soup = BeautifulSoup(res.text, "html.parser")
-            table = soup.find("table")
-            if not table:
-                send_log(f"❌ Nie znaleziono tabeli na stronie {url}")
-                continue
-
-            rows = table.find_all("tr")[1:]
-            new_purchases = []
-
-            for row in rows:
-                cols = row.find_all("td")
-                if len(cols) < 6:
-                    continue
-                if today_str in cols[5].text:
-                    spolka = cols[0].text.strip()
-                    cena = cols[2].text.strip()
-                    new_purchases.append(f"🆕 Nowy zakup ({label}): *{spolka}* po *{cena}*")
-
-            if mode == "daily" and new_purchases:
-                for msg in new_purchases:
+            if res.status_code == 200:
+                msg = parse_portfel_table(res.text, label, only_today=True)
+                if msg:
                     send_log(msg)
-
-            elif mode == "weekly":
-                summary = parse_portfel_table(res.text, label)
-                send_log(summary)
-
+            else:
+                send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
         except Exception as e:
-            send_log(f"❌ Błąd w analizie {label}:\n{e}")
+            send_log(f"❌ Błąd przy analizie {url}:\n{e}")
+
+def run_weekly(session):
+    send_log("📅 Harmonogram --weekly aktywowany")
+    for label, url in PORTFEL_URLS.items():
+        try:
+            res = session.get(url)
+            if res.status_code == 200:
+                msg = parse_portfel_table(res.text, label)
+                if msg:
+                    send_log(msg)
+            else:
+                send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
+        except Exception as e:
+            send_log(f"❌ Błąd przy analizie {url}:\n{e}")
 
 if __name__ == "__main__":
-    main()
+    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli (harmonogram Railway)")
+
+    session = login()
+    if not session:
+        sys.exit(1)
+
+    args = sys.argv[1:]
+    if "--daily" in args:
+        run_daily(session)
+    if "--weekly" in args:
+        run_weekly(session)
+
+    # domyślnie uruchom oba, jeśli brak argumentów
+    if not args:
+        run_daily(session)
+        run_weekly(session)
