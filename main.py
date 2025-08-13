@@ -69,11 +69,10 @@ def login():
         send_log("❌ Logowanie nie powiodło się – brak frazy 'Wyloguj'.")
         return None
 
-def parse_portfel_table(html, label, only_today=False):
+def parse_portfel_table(html, label):
     """
     Zwraca sformatowany markdown z tabelą.
-    - only_today=True: tylko wiersze z dzisiejszą datą
-    - usuwa podsumowania (Całkowita wartość, WIG, mWIG40, sWIG80, WIG20, puste pierwsze kolumny)
+    Usuwa podsumowania (Całkowita wartość, WIG, mWIG40, sWIG80, WIG20, puste pierwsze kolumny)
     """
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table")
@@ -86,7 +85,6 @@ def parse_portfel_table(html, label, only_today=False):
 
     header = [col.get_text(strip=True) for col in rows[0].find_all(["th", "td"])]
     data_rows = []
-    today_str = datetime.now().strftime("%d.%m.%Y")
 
     for row in rows[1:]:
         cols = row.find_all("td")
@@ -105,12 +103,7 @@ def parse_portfel_table(html, label, only_today=False):
         ):
             continue
 
-        if only_today:
-            # wiersz ma schemat: [Spółka, Data zakupu, Cena kupna, ...]
-            if len(data) >= 2 and data[1] == today_str:
-                data_rows.append(data)
-        else:
-            data_rows.append(data)
+        data_rows.append(data)
 
     if not data_rows:
         return None
@@ -121,37 +114,6 @@ def parse_portfel_table(html, label, only_today=False):
     for data in data_rows:
         output.append(" | ".join(data))
     return "\n".join(output)
-
-def run_daily(session):
-    send_log("📅 Harmonogram --daily aktywowany")
-    for label, url in PORTFEL_URLS.items():
-        try:
-            res = session.get(url, timeout=30)
-            if res.status_code == 200:
-                msg = parse_portfel_table(res.text, label, only_today=True)
-                if msg:
-                    send_log(msg)
-                # brak nowych — nic nie wysyłamy
-            else:
-                send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
-        except Exception as e:
-            send_log(f"❌ Błąd przy analizie {url}:\n{e}")
-
-def run_weekly(session):
-    send_log("📅 Harmonogram --weekly aktywowany")
-    for label, url in PORTFEL_URLS.items():
-        try:
-            res = session.get(url, timeout=30)
-            if res.status_code == 200:
-                msg = parse_portfel_table(res.text, label)
-                if msg:
-                    send_log(msg)
-            else:
-                send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
-        except Exception as e:
-            send_log(f"❌ Błąd przy analizie {url}:\n{e}")
-
-# ====== TRYB BOTA (komendy na Telegramie) ======
 
 def fetch_portfel(session, label):
     url = PORTFEL_URLS[label]
@@ -205,13 +167,15 @@ def bot_loop():
                 if not message:
                     continue
 
+                # Ignoruj wiadomości od botów (włącznie z własnymi)
+                if message.get("from", {}).get("is_bot", False):
+                    continue
+
                 chat_id = str(message["chat"]["id"])
                 text = (message.get("text") or "").strip()
 
-                # Ogranicz do zdefiniowanego czatu (opcjonalnie – zostawiamy, bo używasz 1 czatu)
-                # Jeśli chcesz, usuń poniższy warunek, aby bot odpowiadał wszędzie:
+                # Ogranicz do zdefiniowanego czatu
                 if chat_id != TELEGRAM_CHAT_ID:
-                    # ewentualnie: send_log("⛔️ Nieautoryzowany czat.", chat_id)
                     continue
 
                 cmd = text.lower()
@@ -241,25 +205,7 @@ def bot_loop():
 
 if __name__ == "__main__":
     # Informacja o starcie
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli / harmonogramy / bot")
-
-    args = sys.argv[1:]
-
-    if "--bot" in args:
-        bot_loop()
-        sys.exit(0)
-
-    # Harmonogramowe tryby
-    session = login()
-    if not session:
-        sys.exit(1)
-
-    if "--daily" in args:
-        run_daily(session)
-    if "--weekly" in args:
-        run_weekly(session)
-
-    # Domyślnie – uruchom oba tryby (jak dotychczas)
-    if not args:
-        run_daily(session)
-        run_weekly(session)
+    send_log("🟢 Bot Telegram wystartował!")
+    
+    # Uruchom bota
+    bot_loop()
