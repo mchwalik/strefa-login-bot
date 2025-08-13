@@ -1,5 +1,6 @@
 import sys
 import time
+import json
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -207,21 +208,27 @@ def bot_loop():
 
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
+
+                # 🔍 DEBUG — loguj cały update w formacie JSON
+                try:
+                    send_log(f"DEBUG UPDATE:\n```{json.dumps(update, indent=2, ensure_ascii=False)}```")
+                except Exception as e:
+                    send_log(f"❌ Błąd debugowania: {e}")
+
                 message = update.get("message") or update.get("channel_post")
                 if not message:
                     continue
 
                 chat_id = str(message["chat"]["id"])
-
                 if chat_id != TELEGRAM_CHAT_ID:
                     continue
 
                 if "text" not in message:
-                    continue  # ignoruj brak tekstu
+                    continue
 
                 text = message["text"].strip()
                 if not text or not text.startswith("/"):
-                    continue  # ignoruj zwykłe wiadomości
+                    continue
 
                 cmd = text.lower().split()[0]
                 cmd = cmd.split("@")[0]  # usuń @NazwaBota
