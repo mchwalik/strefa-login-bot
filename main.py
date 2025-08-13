@@ -193,6 +193,8 @@ def bot_loop():
         send_log("❌ Bot: logowanie nieudane – kończę.")
         return
 
+    send_log("🚀 Bot gotowy do odbierania komend!")
+    
     offset = None
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     help_text = (
@@ -204,42 +206,67 @@ def bot_loop():
         "/help – pomoc\n"
     )
 
+    error_count = 0
+    max_errors = 5
+
     while True:
         try:
+            print("🔄 Sprawdzam nowe wiadomości...")
             r = requests.get(
                 f"{base_url}/getUpdates",
                 params={"timeout": 25, "offset": offset},
                 timeout=35
             )
+            
+            print(f"📡 Status odpowiedzi Telegram: {r.status_code}")
+            
             if r.status_code != 200:
+                error_count += 1
+                print(f"❌ Błędny status code: {r.status_code}")
+                if error_count >= max_errors:
+                    send_log("❌ Zbyt wiele błędów połączenia - zatrzymuję bota")
+                    break
                 time.sleep(2)
                 continue
+            
+            error_count = 0  # reset counter on success
             data = r.json()
+            
             if not data.get("ok"):
+                print(f"❌ Telegram API błąd: {data}")
                 time.sleep(2)
                 continue
 
-            for update in data.get("result", []):
+            updates = data.get("result", [])
+            print(f"📨 Otrzymano {len(updates)} aktualizacji")
+
+            for update in updates:
                 offset = update["update_id"] + 1
+                print(f"🔍 Przetwarzam update ID: {offset-1}")
 
                 message = update.get("message") or update.get("channel_post")
                 if not message:
+                    print("⚠️ Brak wiadomości w update")
                     continue
 
                 # Ignore messages from bots (including this bot's own messages)
                 if message.get("from", {}).get("is_bot", False):
+                    print("🤖 Ignoruję wiadomość od bota")
                     continue
 
                 chat_id = str(message["chat"]["id"])
                 text = (message.get("text") or "").strip()
+                
+                print(f"💬 Wiadomość z chat_id {chat_id}: '{text}'")
 
-                # Ogranicz do zdefiniowanego czatu (opcjonalnie – zostawiamy, bo używasz 1 czatu)
-                # Jeśli chcesz, usuń poniższy warunek, aby bot odpowiadał wszędzie:
+                # Ogranicz do zdefiniowanego czatu
                 if chat_id != TELEGRAM_CHAT_ID:
-                    # ewentualnie: send_log("⛔️ Nieautoryzowany czat.", chat_id)
+                    print(f"⛔ Nieautoryzowany czat: {chat_id}")
                     continue
 
                 cmd = text.lower()
+                print(f"🎯 Wykonuję komendę: {cmd}")
+                
                 if cmd == "/start" or cmd == "/help":
                     send_log(help_text, chat_id)
                 elif cmd == "/petard":
@@ -256,12 +283,19 @@ def bot_loop():
                 elif cmd == "/check":
                     check_actual_portfolio(session, chat_id)
                 else:
-                    # ignoruj inne wiadomości lub podeślij pomoc
+                    print(f"❓ Nieznana komenda: {cmd}")
                     send_log("Nieznana komenda. Napisz /help.", chat_id)
 
         except Exception as e:
-            # krótkie odczekanie i kontynuacja pętli
-            send_log(f"⚠️ Bot: wyjątek w pętli:\n{e}")
+            error_count += 1
+            error_msg = f"⚠️ Bot: wyjątek w pętli (błąd #{error_count}):\n{str(e)[:200]}"
+            print(error_msg)
+            send_log(error_msg)
+            
+            if error_count >= max_errors:
+                send_log("❌ Zbyt wiele błędów - zatrzymuję bota")
+                break
+                
             time.sleep(3)
 
 # ====== ENTRYPOINT ======
