@@ -212,16 +212,18 @@ def bot_loop():
                     continue
 
                 chat_id = str(message["chat"]["id"])
-                text = (message.get("text") or "").strip()
 
                 if chat_id != TELEGRAM_CHAT_ID:
                     continue
 
-                # Reaguj tylko na wiadomości zaczynające się od "/"
-                if not text.startswith("/"):
-                    continue
+                if "text" not in message:
+                    continue  # ignoruj brak tekstu
 
-                cmd = text.lower().split()[0] if text else ""
+                text = message["text"].strip()
+                if not text or not text.startswith("/"):
+                    continue  # ignoruj zwykłe wiadomości
+
+                cmd = text.lower().split()[0]
                 cmd = cmd.split("@")[0]  # usuń @NazwaBota
 
                 if cmd in ["/start", "/help"]:
