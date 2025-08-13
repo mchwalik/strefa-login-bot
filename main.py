@@ -161,10 +161,30 @@ def fetch_portfel(session, label):
     msg = parse_portfel_table(res.text, label)
     return msg or f"ℹ️ Brak danych do wyświetlenia dla: {label}"
 
+def check_actual_portfolio(session, chat_id):
+    """
+    Sprawdza aktualny stan portfeli i wysyła do czatu
+    """
+    send_log("🔍 Sprawdzanie aktualnego stanu portfeli...", chat_id)
+    
+    for label, url in PORTFEL_URLS.items():
+        try:
+            res = session.get(url, timeout=30)
+            if res.status_code == 200:
+                msg = parse_portfel_table(res.text, label)
+                if msg:
+                    send_log(f"📊 *AKTUALNY STAN:*\n{msg}", chat_id)
+                else:
+                    send_log(f"ℹ️ Brak danych dla {label}", chat_id)
+            else:
+                send_log(f"❌ Błąd pobierania {label}: HTTP {res.status_code}", chat_id)
+        except Exception as e:
+            send_log(f"❌ Błąd przy sprawdzaniu {label}: {e}", chat_id)
+
 def bot_loop():
     """
     Long-polling po Telegramie. Obsługiwane komendy:
-    /petard, /strefa, /all, /help
+    /petard, /strefa, /all, /check, /help
     """
     send_log("🤖 Bot komend Telegram – start (long polling)")
 
@@ -180,6 +200,7 @@ def bot_loop():
         "/petard – pokaż *Portfel Petard*\n"
         "/strefa – pokaż *Portfel Strefy Inwestorów*\n"
         "/all – pokaż *oba* portfele\n"
+        "/check – sprawdź *aktualny stan* portfeli\n"
         "/help – pomoc\n"
     )
 
@@ -205,6 +226,10 @@ def bot_loop():
                 if not message:
                     continue
 
+                # Ignore messages from bots (including this bot's own messages)
+                if message.get("from", {}).get("is_bot", False):
+                    continue
+
                 chat_id = str(message["chat"]["id"])
                 text = (message.get("text") or "").strip()
 
@@ -228,6 +253,8 @@ def bot_loop():
                     m2 = fetch_portfel(session, "Portfel Strefy Inwestorów")
                     send_log(m1, chat_id)
                     send_log(m2, chat_id)
+                elif cmd == "/check":
+                    check_actual_portfolio(session, chat_id)
                 else:
                     # ignoruj inne wiadomości lub podeślij pomoc
                     send_log("Nieznana komenda. Napisz /help.", chat_id)
@@ -241,25 +268,7 @@ def bot_loop():
 
 if __name__ == "__main__":
     # Informacja o starcie
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli / harmonogramy / bot")
-
-    args = sys.argv[1:]
-
-    if "--bot" in args:
-        bot_loop()
-        sys.exit(0)
-
-    # Harmonogramowe tryby
-    session = login()
-    if not session:
-        sys.exit(1)
-
-    if "--daily" in args:
-        run_daily(session)
-    if "--weekly" in args:
-        run_weekly(session)
-
-    # Domyślnie – uruchom oba tryby (jak dotychczas)
-    if not args:
-        run_daily(session)
-        run_weekly(session)
+    send_log("🟢 Bot Telegram wystartował!")
+    
+    # Uruchom tylko bota
+    bot_loop()
