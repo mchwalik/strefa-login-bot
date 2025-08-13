@@ -209,7 +209,7 @@ def bot_loop():
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
 
-                # 🔍 DEBUG — loguj cały update w formacie JSON
+                # 🔍 DEBUG — wysyłamy cały surowy update jako JSON
                 try:
                     send_log(f"DEBUG UPDATE:\n```{json.dumps(update, indent=2, ensure_ascii=False)}```")
                 except Exception as e:
@@ -261,7 +261,8 @@ def bot_loop():
             time.sleep(3)
 
 if __name__ == "__main__":
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli / harmonogramy / bot")
+    send_log("🟢 Skrypt wystartował – tryb debug bota aktywny")
+    sys.argv.append("--bot")
 
     args = sys.argv[1:]
 
