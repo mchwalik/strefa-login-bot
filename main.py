@@ -181,12 +181,44 @@ def check_actual_portfolio(session, chat_id):
         except Exception as e:
             send_log(f"❌ Błąd przy sprawdzaniu {label}: {e}", chat_id)
 
+def test_telegram_connection():
+    """Test połączenia z Telegram API"""
+    try:
+        print("🧪 Testuję połączenie z Telegram API...")
+        
+        # Test 1: getMe
+        r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe", timeout=10)
+        print(f"📡 Status getMe: {r.status_code}")
+        
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("ok"):
+                bot_info = data.get("result", {})
+                print(f"✅ Bot działa! Username: {bot_info.get('username')}")
+                return True
+            else:
+                print(f"❌ Bot API błąd: {data}")
+                return False
+        else:
+            print(f"❌ HTTP błąd: {r.status_code}")
+            print(f"Response: {r.text[:200]}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Błąd testowania: {e}")
+        return False
+
 def bot_loop():
     """
     Long-polling po Telegramie. Obsługiwane komendy:
     /petard, /strefa, /all, /check, /help
     """
     send_log("🤖 Bot komend Telegram – start (long polling)")
+
+    # Test połączenia najpierw
+    if not test_telegram_connection():
+        send_log("❌ Nie można połączyć z Telegram API - sprawdź token!")
+        return
 
     session = login()
     if not session:
@@ -207,15 +239,15 @@ def bot_loop():
     )
 
     error_count = 0
-    max_errors = 5
+    max_errors = 3  # zmniejszone z 5 na 3
 
     while True:
         try:
             print("🔄 Sprawdzam nowe wiadomości...")
             r = requests.get(
                 f"{base_url}/getUpdates",
-                params={"timeout": 25, "offset": offset},
-                timeout=35
+                params={"timeout": 10, "offset": offset},  # zmniejszony timeout z 25 na 10
+                timeout=15  # zmniejszony z 35 na 15
             )
             
             print(f"📡 Status odpowiedzi Telegram: {r.status_code}")
@@ -223,10 +255,11 @@ def bot_loop():
             if r.status_code != 200:
                 error_count += 1
                 print(f"❌ Błędny status code: {r.status_code}")
+                print(f"Response: {r.text[:200]}")
                 if error_count >= max_errors:
                     send_log("❌ Zbyt wiele błędów połączenia - zatrzymuję bota")
                     break
-                time.sleep(2)
+                time.sleep(5)  # zwiększone z 2 na 5 sekund
                 continue
             
             error_count = 0  # reset counter on success
@@ -286,6 +319,22 @@ def bot_loop():
                     print(f"❓ Nieznana komenda: {cmd}")
                     send_log("Nieznana komenda. Napisz /help.", chat_id)
 
+        except requests.exceptions.Timeout:
+            error_count += 1
+            print(f"⏰ Timeout połączenia (błąd #{error_count})")
+            if error_count >= max_errors:
+                send_log("❌ Zbyt wiele timeoutów - zatrzymuję bota")
+                break
+            time.sleep(5)
+            
+        except requests.exceptions.ConnectionError:
+            error_count += 1
+            print(f"🌐 Błąd połączenia internetowego (błąd #{error_count})")
+            if error_count >= max_errors:
+                send_log("❌ Brak internetu - zatrzymuję bota")
+                break
+            time.sleep(10)
+            
         except Exception as e:
             error_count += 1
             error_msg = f"⚠️ Bot: wyjątek w pętli (błąd #{error_count}):\n{str(e)[:200]}"
