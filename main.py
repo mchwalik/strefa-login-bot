@@ -122,6 +122,35 @@ def parse_portfel_table(html, label, only_today=False):
         output.append(" | ".join(data))
     return "\n".join(output)
 
+def run_daily(session):
+    send_log("📅 Harmonogram --daily aktywowany")
+    for label, url in PORTFEL_URLS.items():
+        try:
+            res = session.get(url, timeout=30)
+            if res.status_code == 200:
+                msg = parse_portfel_table(res.text, label, only_today=True)
+                if msg:
+                    send_log(msg)
+                # brak nowych — nic nie wysyłamy
+            else:
+                send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
+        except Exception as e:
+            send_log(f"❌ Błąd przy analizie {url}:\n{e}")
+
+def run_weekly(session):
+    send_log("📅 Harmonogram --weekly aktywowany")
+    for label, url in PORTFEL_URLS.items():
+        try:
+            res = session.get(url, timeout=30)
+            if res.status_code == 200:
+                msg = parse_portfel_table(res.text, label)
+                if msg:
+                    send_log(msg)
+            else:
+                send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
+        except Exception as e:
+            send_log(f"❌ Błąd przy analizie {url}:\n{e}")
+
 # ====== TRYB BOTA (komendy na Telegramie) ======
 
 def fetch_portfel(session, label):
@@ -179,8 +208,10 @@ def bot_loop():
                 chat_id = str(message["chat"]["id"])
                 text = (message.get("text") or "").strip()
 
-                # Ogranicz do zdefiniowanego czatu
+                # Ogranicz do zdefiniowanego czatu (opcjonalnie – zostawiamy, bo używasz 1 czatu)
+                # Jeśli chcesz, usuń poniższy warunek, aby bot odpowiadał wszędzie:
                 if chat_id != TELEGRAM_CHAT_ID:
+                    # ewentualnie: send_log("⛔️ Nieautoryzowany czat.", chat_id)
                     continue
 
                 cmd = text.lower()
@@ -210,7 +241,25 @@ def bot_loop():
 
 if __name__ == "__main__":
     # Informacja o starcie
-    send_log("🟢 Bot Telegram wystartował!")
-    
-    # Uruchom bota
-    bot_loop()
+    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli / harmonogramy / bot")
+
+    args = sys.argv[1:]
+
+    if "--bot" in args:
+        bot_loop()
+        sys.exit(0)
+
+    # Harmonogramowe tryby
+    session = login()
+    if not session:
+        sys.exit(1)
+
+    if "--daily" in args:
+        run_daily(session)
+    if "--weekly" in args:
+        run_weekly(session)
+
+    # Domyślnie – uruchom oba tryby (jak dotychczas)
+    if not args:
+        run_daily(session)
+        run_weekly(session)
