@@ -217,6 +217,10 @@ def bot_loop():
                 if chat_id != TELEGRAM_CHAT_ID:
                     continue
 
+                # Reaguj tylko na wiadomości zaczynające się od "/"
+                if not text.startswith("/"):
+                    continue
+
                 cmd = text.lower().split()[0] if text else ""
                 cmd = cmd.split("@")[0]  # usuń @NazwaBota
 
@@ -242,8 +246,6 @@ def bot_loop():
                         send_log(fetch_portfel(session, "Portfel Strefy Inwestorów"), chat_id)
                     else:
                         send_log("Nie rozpoznano parametru. Użyj: /zawartosc [petard|strefa]", chat_id)
-                else:
-                    send_log("Nieznana komenda. Napisz /help.", chat_id)
 
         except Exception as e:
             send_log(f"⚠️ Bot: wyjątek w pętli:\n{e}")
