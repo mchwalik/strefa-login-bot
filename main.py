@@ -12,7 +12,7 @@ TELEGRAM_CHAT_ID = "7647211011"  # do logów + dozwolony czat
 
 PORTFEL_URLS = {
     "Portfel Petard": "https://strefainwestorow.pl/portfel_petard",
-    "Portfel Strefy Inwestorów": "https://strefainwestorow.pl/portfel_strefy_inwestorow"
+    "Portfel Strefy Inwestorów": "https://strefainwestorow.pl/portfel_strezy_inwestorow"
 }
 
 def send_log(msg, chat_id: str = TELEGRAM_CHAT_ID):
@@ -205,6 +205,10 @@ def bot_loop():
                 if not message:
                     continue
 
+                # Ignoruj wiadomości od botów (włącznie z własnymi)
+                if message.get("from", {}).get("is_bot", False):
+                    continue
+
                 chat_id = str(message["chat"]["id"])
                 text = (message.get("text") or "").strip()
 
@@ -241,25 +245,7 @@ def bot_loop():
 
 if __name__ == "__main__":
     # Informacja o starcie
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli / harmonogramy / bot")
-
-    args = sys.argv[1:]
-
-    if "--bot" in args:
-        bot_loop()
-        sys.exit(0)
-
-    # Harmonogramowe tryby
-    session = login()
-    if not session:
-        sys.exit(1)
-
-    if "--daily" in args:
-        run_daily(session)
-    if "--weekly" in args:
-        run_weekly(session)
-
-    # Domyślnie – uruchom oba tryby (jak dotychczas)
-    if not args:
-        run_daily(session)
-        run_weekly(session)
+    send_log("🟢 Bot Telegram wystartował!")
+    
+    # Uruchom bota
+    bot_loop()
