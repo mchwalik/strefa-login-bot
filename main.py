@@ -69,10 +69,11 @@ def login():
         send_log("❌ Logowanie nie powiodło się – brak frazy 'Wyloguj'.")
         return None
 
-def parse_portfel_table(html, label):
+def parse_portfel_table(html, label, only_today=False):
     """
     Zwraca sformatowany markdown z tabelą.
-    Usuwa podsumowania (Całkowita wartość, WIG, mWIG40, sWIG80, WIG20, puste pierwsze kolumny)
+    - only_today=True: tylko wiersze z dzisiejszą datą
+    - usuwa podsumowania (Całkowita wartość, WIG, mWIG40, sWIG80, WIG20, puste pierwsze kolumny)
     """
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table")
@@ -85,6 +86,7 @@ def parse_portfel_table(html, label):
 
     header = [col.get_text(strip=True) for col in rows[0].find_all(["th", "td"])]
     data_rows = []
+    today_str = datetime.now().strftime("%d.%m.%Y")
 
     for row in rows[1:]:
         cols = row.find_all("td")
@@ -103,7 +105,120 @@ def parse_portfel_table(html, label):
         ):
             continue
 
-        data_rows.append(data)
+        if only_today:
+            # wiimport sys
+import time
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
+
+# 🔐 Dane logowania i Telegram (hardcoded – NIE ZMIENIAĆ!)
+LOGIN_EMAIL = "marcin.chwalik@gmail.com"
+LOGIN_PASSWORD = "Sdkfz251"
+TELEGRAM_BOT_TOKEN = "7958150824:AAH4-Edu3YIQV9d-rZRHdq7rp_JI222OmGY"
+TELEGRAM_CHAT_ID = "7647211011"  # do logów + dozwolony czat
+
+PORTFEL_URLS = {
+    "Portfel Petard": "https://strefainwestorow.pl/portfel_petard",
+    "Portfel Strefy Inwestorów": "https://strefainwestorow.pl/portfel_strefy_inwestorow"
+}
+
+def send_log(msg, chat_id: str = TELEGRAM_CHAT_ID):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": chat_id,
+                "text": msg,
+                "parse_mode": "Markdown"
+            },
+            timeout=20
+        )
+    except Exception as e:
+        print(f"❌ Błąd wysyłania do Telegrama: {e}")
+
+def login():
+    send_log("🔐 Rozpoczynam logowanie...")
+
+    session = requests.Session()
+    res_get = session.get("https://strefainwestorow.pl/user/login", timeout=30)
+    send_log(f"📡 Status logowania: {res_get.status_code}")
+    if res_get.status_code != 200:
+        send_log("❌ Błąd pobierania formularza logowania")
+        return None
+
+    soup = BeautifulSoup(res_get.text, "html.parser")
+    form = soup.find("form", {"id": "user-login-form"})
+    if not form:
+        send_log("❌ Nie znaleziono formularza logowania.")
+        return None
+
+    data = {
+        "name": LOGIN_EMAIL,
+        "pass": LOGIN_PASSWORD
+    }
+
+    for hidden in form.find_all("input", {"type": "hidden"}):
+        name = hidden.get("name")
+        val = hidden.get("value", "")
+        if name:
+            data[name] = val
+
+    post_url = "https://strefainwestorow.pl" + form.get("action", "/user/login")
+    res_post = session.post(post_url, data=data, timeout=30)
+    if res_post.status_code != 200:
+        send_log("❌ Błąd przy wysyłaniu danych logowania.")
+        return None
+
+    if "Wyloguj" in res_post.text or "/user/logout" in res_post.text:
+        send_log("✅ Logowanie zakończone sukcesem!")
+        return session
+    else:
+        send_log("❌ Logowanie nie powiodło się – brak frazy 'Wyloguj'.")
+        return None
+
+def parse_portfel_table(html, label, only_today=False):
+    """
+    Zwraca sformatowany markdown z tabelą.
+    - only_today=True: tylko wiersze z dzisiejszą datą
+    - usuwa podsumowania (Całkowita wartość, WIG, mWIG40, sWIG80, WIG20, puste pierwsze kolumny)
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table")
+    if not table:
+        return None
+
+    rows = table.find_all("tr")
+    if not rows:
+        return None
+
+    header = [col.get_text(strip=True) for col in rows[0].find_all(["th", "td"])]
+    data_rows = []
+    today_str = datetime.now().strftime("%d.%m.%Y")
+
+    for row in rows[1:]:
+        cols = row.find_all("td")
+        if not cols:
+            continue
+        data = [col.get_text(strip=True) for col in cols]
+
+        # odfiltruj podsumowania i puste wiersze
+        joined = " ".join(data).lower()
+        if (
+            not data[0].strip()
+            or "całkowita wartość" in joined
+            or "gotówka" in joined
+            or data[-1] in ["WIG", "WIG20", "sWIG80", "mWIG40"]
+            or "wig" in data[-1].lower()
+        ):
+            continue
+
+        if only_today:
+            # wiersz ma schemat: [Spółka, Data zakupu, Cena kupna, ...]
+            if len(data) >= 2 and data[1] == today_str:
+                data_rows.append(data)
+        else:
+            data_rows.append(data)
 
     if not data_rows:
         return None
