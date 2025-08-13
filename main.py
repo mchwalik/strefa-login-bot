@@ -1,4 +1,5 @@
 import sys
+import time
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -7,22 +8,23 @@ from datetime import datetime
 LOGIN_EMAIL = "marcin.chwalik@gmail.com"
 LOGIN_PASSWORD = "Sdkfz251"
 TELEGRAM_BOT_TOKEN = "7958150824:AAH4-Edu3YIQV9d-rZRHdq7rp_JI222OmGY"
-TELEGRAM_CHAT_ID = "7647211011"
+TELEGRAM_CHAT_ID = "7647211011"  # do logów + dozwolony czat
 
 PORTFEL_URLS = {
     "Portfel Petard": "https://strefainwestorow.pl/portfel_petard",
     "Portfel Strefy Inwestorów": "https://strefainwestorow.pl/portfel_strefy_inwestorow"
 }
 
-def send_log(msg):
+def send_log(msg, chat_id: str = TELEGRAM_CHAT_ID):
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
             data={
-                "chat_id": TELEGRAM_CHAT_ID,
+                "chat_id": chat_id,
                 "text": msg,
                 "parse_mode": "Markdown"
-            }
+            },
+            timeout=20
         )
     except Exception as e:
         print(f"❌ Błąd wysyłania do Telegrama: {e}")
@@ -31,7 +33,7 @@ def login():
     send_log("🔐 Rozpoczynam logowanie...")
 
     session = requests.Session()
-    res_get = session.get("https://strefainwestorow.pl/user/login")
+    res_get = session.get("https://strefainwestorow.pl/user/login", timeout=30)
     send_log(f"📡 Status logowania: {res_get.status_code}")
     if res_get.status_code != 200:
         send_log("❌ Błąd pobierania formularza logowania")
@@ -55,7 +57,7 @@ def login():
             data[name] = val
 
     post_url = "https://strefainwestorow.pl" + form.get("action", "/user/login")
-    res_post = session.post(post_url, data=data)
+    res_post = session.post(post_url, data=data, timeout=30)
     if res_post.status_code != 200:
         send_log("❌ Błąd przy wysyłaniu danych logowania.")
         return None
@@ -68,6 +70,11 @@ def login():
         return None
 
 def parse_portfel_table(html, label, only_today=False):
+    """
+    Zwraca sformatowany markdown z tabelą.
+    - only_today=True: tylko wiersze z dzisiejszą datą
+    - usuwa podsumowania (Całkowita wartość, WIG, mWIG40, sWIG80, WIG20, puste pierwsze kolumny)
+    """
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table")
     if not table:
@@ -79,6 +86,7 @@ def parse_portfel_table(html, label, only_today=False):
 
     header = [col.get_text(strip=True) for col in rows[0].find_all(["th", "td"])]
     data_rows = []
+    today_str = datetime.now().strftime("%d.%m.%Y")
 
     for row in rows[1:]:
         cols = row.find_all("td")
@@ -86,17 +94,20 @@ def parse_portfel_table(html, label, only_today=False):
             continue
         data = [col.get_text(strip=True) for col in cols]
 
-        # Pomijaj podsumowania:
+        # odfiltruj podsumowania i puste wiersze
+        joined = " ".join(data).lower()
         if (
-            not data[0].strip()  # pusta pierwsza kolumna
-            or "Całkowita wartość" in data[0]
+            not data[0].strip()
+            or "całkowita wartość" in joined
+            or "gotówka" in joined
             or data[-1] in ["WIG", "WIG20", "sWIG80", "mWIG40"]
+            or "wig" in data[-1].lower()
         ):
             continue
 
-        # Tryb dzienny
         if only_today:
-            if len(data) >= 2 and data[1] == datetime.now().strftime("%d.%m.%Y"):
+            # wiersz ma schemat: [Spółka, Data zakupu, Cena kupna, ...]
+            if len(data) >= 2 and data[1] == today_str:
                 data_rows.append(data)
         else:
             data_rows.append(data)
@@ -115,11 +126,12 @@ def run_daily(session):
     send_log("📅 Harmonogram --daily aktywowany")
     for label, url in PORTFEL_URLS.items():
         try:
-            res = session.get(url)
+            res = session.get(url, timeout=30)
             if res.status_code == 200:
                 msg = parse_portfel_table(res.text, label, only_today=True)
                 if msg:
                     send_log(msg)
+                # brak nowych — nic nie wysyłamy
             else:
                 send_log(f"❌ Błąd pobierania strony {url}: HTTP {res.status_code}")
         except Exception as e:
@@ -129,7 +141,7 @@ def run_weekly(session):
     send_log("📅 Harmonogram --weekly aktywowany")
     for label, url in PORTFEL_URLS.items():
         try:
-            res = session.get(url)
+            res = session.get(url, timeout=30)
             if res.status_code == 200:
                 msg = parse_portfel_table(res.text, label)
                 if msg:
@@ -139,19 +151,146 @@ def run_weekly(session):
         except Exception as e:
             send_log(f"❌ Błąd przy analizie {url}:\n{e}")
 
-if __name__ == "__main__":
-    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli (harmonogram Railway)")
+# ====== TRYB BOTA (komendy na Telegramie) ======
 
+def fetch_portfel(session, label):
+    url = PORTFEL_URLS[label]
+    res = session.get(url, timeout=30)
+    if res.status_code != 200:
+        return f"❌ Błąd pobierania {label}: HTTP {res.status_code}"
+    msg = parse_portfel_table(res.text, label)
+    return msg or f"ℹ️ Brak danych do wyświetlenia dla: {label}"
+
+def _parse_zawartosc_args(text: str):
+    """
+    Zwraca: "petard" | "strefa" | "both"
+    Działa dla: /zawartosc, /zawartosc petard, /zawartosc strefa, /z
+    """
+    t = (text or "").strip().lower()
+    parts = t.split()
+    if len(parts) == 1:
+        return "both"
+    arg = parts[1]
+    if arg in ["petard", "petarda", "petardzie"]:
+        return "petard"
+    if arg in ["strefa", "strefy", "strefie"]:
+        return "strefa"
+    return "both"
+
+def bot_loop():
+    """
+    Long-polling po Telegramie. Obsługiwane komendy:
+    /petard, /strefa, /all, /zawartosc, /z, /help
+    """
+    send_log("🤖 Bot komend Telegram – start (long polling)")
+
+    session = login()
+    if not session:
+        send_log("❌ Bot: logowanie nieudane – kończę.")
+        return
+
+    offset = None
+    base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+    help_text = (
+        "🤖 *Komendy:*\n"
+        "/petard – pokaż *Portfel Petard*\n"
+        "/strefa – pokaż *Portfel Strefy Inwestorów*\n"
+        "/all – pokaż *oba* portfele\n"
+        "/zawartosc [petard|strefa] – sprawdź zawartość portfeli (alias: /z)\n"
+        "/help – pomoc\n"
+    )
+
+    while True:
+        try:
+            r = requests.get(
+                f"{base_url}/getUpdates",
+                params={"timeout": 25, "offset": offset},
+                timeout=35
+            )
+            if r.status_code != 200:
+                time.sleep(2)
+                continue
+            data = r.json()
+            if not data.get("ok"):
+                time.sleep(2)
+                continue
+
+            for update in data.get("result", []):
+                offset = update["update_id"] + 1
+
+                message = update.get("message") or update.get("channel_post")
+                if not message:
+                    continue
+
+                chat_id = str(message["chat"]["id"])
+                text = (message.get("text") or "").strip()
+
+                # Ogranicz do zdefiniowanego czatu (opcjonalnie – zostawiamy, bo używasz 1 czatu)
+                if chat_id != TELEGRAM_CHAT_ID:
+                    continue
+
+                cmd = text.lower().split()[0] if text else ""
+                if cmd in ["/start", "/help"]:
+                    send_log(help_text, chat_id)
+                elif cmd == "/petard":
+                    msg = fetch_portfel(session, "Portfel Petard")
+                    send_log(msg, chat_id)
+                elif cmd == "/strefa":
+                    msg = fetch_portfel(session, "Portfel Strefy Inwestorów")
+                    send_log(msg, chat_id)
+                elif cmd == "/all":
+                    m1 = fetch_portfel(session, "Portfel Petard")
+                    m2 = fetch_portfel(session, "Portfel Strefy Inwestorów")
+                    send_log(m1, chat_id)
+                    send_log(m2, chat_id)
+                elif cmd in ["/zawartosc", "/z"]:
+                    which = _parse_zawartosc_args(text)
+                    if which in ["both"]:
+                        m1 = fetch_portfel(session, "Portfel Petard")
+                        m2 = fetch_portfel(session, "Portfel Strefy Inwestorów")
+                        send_log(m1, chat_id)
+                        send_log(m2, chat_id)
+                    elif which == "petard":
+                        m1 = fetch_portfel(session, "Portfel Petard")
+                        send_log(m1, chat_id)
+                    elif which == "strefa":
+                        m2 = fetch_portfel(session, "Portfel Strefy Inwestorów")
+                        send_log(m2, chat_id)
+                    else:
+                        # fallback (nie powinien wystąpić)
+                        send_log("Nie rozpoznano parametru. Użyj: /zawartosc [petard|strefa]", chat_id)
+                else:
+                    # ignoruj inne wiadomości lub podeślij pomoc
+                    send_log("Nieznana komenda. Napisz /help.", chat_id)
+
+        except Exception as e:
+            # krótkie odczekanie i kontynuacja pętli
+            send_log(f"⚠️ Bot: wyjątek w pętli:\n{e}")
+            time.sleep(3)
+
+# ====== ENTRYPOINT ======
+
+if __name__ == "__main__":
+    # Informacja o starcie
+    send_log("🟢 Skrypt wystartował – sprawdzanie portfeli / harmonogramy / bot")
+
+    args = sys.argv[1:]
+
+    if "--bot" in args:
+        bot_loop()
+        sys.exit(0)
+
+    # Harmonogramowe tryby
     session = login()
     if not session:
         sys.exit(1)
 
-    args = sys.argv[1:]
     if "--daily" in args:
         run_daily(session)
     if "--weekly" in args:
         run_weekly(session)
 
+    # Domyślnie – uruchom oba tryby (jak dotychczas)
     if not args:
         run_daily(session)
         run_weekly(session)
