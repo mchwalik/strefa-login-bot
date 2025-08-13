@@ -227,9 +227,11 @@ def bot_loop():
     send_log("🤖 Bot komend Telegram – start (long polling)")
 
     # Test połączenia najpierw
+    print("=" * 50)
     if not test_telegram_connection():
         send_log("❌ Nie można połączyć z Telegram API - sprawdź token!")
         return
+    print("=" * 50)
 
     session = login()
     if not session:
