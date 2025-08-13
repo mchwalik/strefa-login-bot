@@ -224,13 +224,17 @@ def bot_loop():
     Long-polling po Telegramie. Obsługiwane komendy:
     /petard, /strefa, /all, /check, /help
     """
+    print("🤖 Bot komend Telegram – start (long polling)")
     send_log("🤖 Bot komend Telegram – start (long polling)")
 
     # Test połączenia najpierw
     print("=" * 50)
+    print("ROZPOCZYNAM TEST POŁĄCZENIA")
     if not test_telegram_connection():
+        print("TEST POŁĄCZENIA NIEUDANY!")
         send_log("❌ Nie można połączyć z Telegram API - sprawdź token!")
         return
+    print("TEST POŁĄCZENIA UDANY!")
     print("=" * 50)
 
     session = login()
@@ -238,6 +242,7 @@ def bot_loop():
         send_log("❌ Bot: logowanie nieudane – kończę.")
         return
 
+    print("🚀 Bot gotowy do odbierania komend!")
     send_log("🚀 Bot gotowy do odbierania komend!")
     
     offset = None
