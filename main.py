@@ -185,10 +185,15 @@ def test_telegram_connection():
     """Test połączenia z Telegram API"""
     try:
         print("🧪 Testuję połączenie z Telegram API...")
+        print(f"🔑 Token: {TELEGRAM_BOT_TOKEN[:20]}...")
         
         # Test 1: getMe
-        r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe", timeout=10)
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe"
+        print(f"🌐 URL: {url[:50]}...")
+        
+        r = requests.get(url, timeout=10)
         print(f"📡 Status getMe: {r.status_code}")
+        print(f"📄 Response text: {r.text[:300]}")
         
         if r.status_code == 200:
             data = r.json()
@@ -201,9 +206,15 @@ def test_telegram_connection():
                 return False
         else:
             print(f"❌ HTTP błąd: {r.status_code}")
-            print(f"Response: {r.text[:200]}")
+            print(f"Response: {r.text}")
             return False
             
+    except requests.exceptions.Timeout as e:
+        print(f"⏰ Timeout: {e}")
+        return False
+    except requests.exceptions.ConnectionError as e:
+        print(f"🌐 Connection error: {e}")
+        return False
     except Exception as e:
         print(f"❌ Błąd testowania: {e}")
         return False
