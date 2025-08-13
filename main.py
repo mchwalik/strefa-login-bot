@@ -205,16 +205,27 @@ def bot_loop():
                 if not message:
                     continue
 
+                # Debug: sprawdź czy wiadomość pochodzi od bota
+                from_user = message.get("from", {})
+                is_bot = from_user.get("is_bot", False)
+                username = from_user.get("username", "unknown")
+                
+                print(f"🔍 Wiadomość od: {username}, is_bot: {is_bot}")
+
                 # Ignoruj wiadomości od botów (włącznie z własnymi)
-                if message.get("from", {}).get("is_bot", False):
+                if is_bot:
+                    print("🤖 Ignoruję wiadomość od bota")
                     continue
 
                 chat_id = str(message["chat"]["id"])
                 text = (message.get("text") or "").strip()
+                
+                print(f"💬 Przetwarzam: '{text}' z chat_id: {chat_id}")
 
-                # Ogranicz do zdefiniowanego czatu (opcjonalnie – zostawiamy, bo używasz 1 czatu)
-                # Jeśli chcesz, usuń poniższy warunek, aby bot odpowiadał wszędzie:
+                # Ogranicz do zdefiniowanego czatu
                 if chat_id != TELEGRAM_CHAT_ID:
+                    print(f"⛔ Nieautoryzowany czat: {chat_id}")
+                    continue
                     # ewentualnie: send_log("⛔️ Nieautoryzowany czat.", chat_id)
                     continue
 
