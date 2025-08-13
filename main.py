@@ -171,7 +171,6 @@ def bot_loop():
         send_log("❌ Bot: logowanie nieudane – kończę.")
         return
 
-    # 🛠 Pobierz ostatni update_id, aby uniknąć spamu po restarcie
     offset = None
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     try:
@@ -219,6 +218,8 @@ def bot_loop():
                     continue
 
                 cmd = text.lower().split()[0] if text else ""
+                cmd = cmd.split("@")[0]  # usuń @NazwaBota
+
                 if cmd in ["/start", "/help"]:
                     send_log(help_text, chat_id)
                 elif cmd == "/petard":
